@@ -1,9 +1,10 @@
-numpy<2
+streamlit
 rasterio
 scipy
-streamlit
 folium
 streamlit-folium
-asf-search
-requests
 matplotlib
+requests
+asf-search
+h5py
+numpy
