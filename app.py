@@ -520,7 +520,7 @@ with col_right:
         w_down = src.width // downsample_factor
 
         img_data = src.read(1, out_shape=(h_down, w_down)).astype(float)
-        bounds = src.bounds  # Используем чистые метаданные файла без подгонов!
+        bounds = src.bounds
 
         img_data[np.isnan(img_data)] = np.nan
         img_data[(img_data == 0) | (img_data > 10000) | (img_data < -10000)] = (
@@ -574,7 +574,6 @@ with col_right:
             rgba_img[~active_mask, 3] = 0
             rgba_img[active_mask, 3] = 210
 
-            # Накладываем растр по родным границам GeoTIFF файла
             folium.raster_layers.ImageOverlay(
                 image=rgba_img,
                 bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
@@ -582,7 +581,7 @@ with col_right:
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
 
-            # --- НАУЧНЫЙ РАСЧЕТ КООРДИНАТ ДЕФОРМАЦИЙ ЧЕРЕЗ AFFINE TRANSFORM ---
+            # --- LOCAL DEFORMATION CENTERS VIA AFFINE TRANSFORM ---
             clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
             height_arr, width_arr = clean_data.shape
             max_local = (
@@ -603,7 +602,6 @@ with col_right:
             for y_idx, x_idx in zip(y_idxs[::4], x_idxs[::4]):
               orig_y = y_idx * downsample_factor
               orig_x = x_idx * downsample_factor
-              # Стандартное аффинное преобразование rasterio: пиксели в гео-координаты
               lon, lat = rasterio.transform.xy(
                   src.transform, orig_y, orig_x
               )
@@ -614,7 +612,6 @@ with col_right:
                   "Local Uplift" if val > 0 else "Local Subsidence"
               )
 
-2026-11-15 07:24:08.864 Uvicorn server started on :::8501
               folium.CircleMarker(
                   location=[lat, lon],
                   radius=5,
@@ -634,7 +631,7 @@ with col_right:
     except Exception as e:
       st.error(f"❌ Ошибка рендеринга растра: {str(e)}")
   else:
-    st.warning(f`ℹ️ Файл `{target_tif}` не найден в репозитории.`)
+    st.warning(f"ℹ️ Файл `{target_tif}` не найден в репозитории.")
 
   st_folium(m, use_container_width=True, height=450, returned_objects=[])
 
