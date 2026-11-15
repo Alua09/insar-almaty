@@ -1,9 +1,9 @@
+numpy<2
+rasterio
+scipy
 streamlit
 folium
 streamlit-folium
-rasterio
-scipy
-numpy
 asf-search
 requests
 matplotlib
