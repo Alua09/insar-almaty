@@ -192,11 +192,11 @@ selected_pair = st.sidebar.selectbox(
 DATA_DIR = r"C:\InSAR.Almaty"
 
 raster_files = {
-    "June — July (Jun-Jul)": os.path.join(DATA_DIR, "displacement_pair_1.tif"),
-    "July — August (Jul-Aug)": os.path.join(DATA_DIR, "displacement_pair_2.tif"),
-    "August — September (Aug-Sep)": os.path.join(DATA_DIR, "displacement_pair_3.tif"),
-    "September — October (Sep-Oct)": os.path.join(DATA_DIR, "displacement_pair_4.tif"),
-    "June — October (Seasonal Summary)": os.path.join(DATA_DIR, "displacement_pair_cumulative.tif"),
+    "June — July (Jun-Jul)": os.path.join(DATA_DIR, "displacement_pair_1_small.tif"),
+    "July — August (Jul-Aug)": os.path.join(DATA_DIR, "displacement_pair_2_small.tif"),
+    "August — September (Aug-Sep)": os.path.join(DATA_DIR, "displacement_pair_3_small.tif"),
+    "September — October (Sep-Oct)": os.path.join(DATA_DIR, "displacement_pair_5_small.tif"),
+    "June — October (Seasonal Summary)": os.path.join(DATA_DIR, "displacement_pair_cumulative_small.tif"),
 }
 
 # --- MAP LEGEND ---
