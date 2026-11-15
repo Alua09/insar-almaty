@@ -414,7 +414,7 @@ with col_left:
           lon_min, lat_min, lon_max, lat_max = almaty_bbox
           wkt_polygon = (
               f"POLYGON(({lon_min} {lat_min}, {lon_max} {lat_min}, {lon_max}"
-              f" {lat_max}, {lon_min} {lat_max}, {lon_min} {lon_min}))"
+              f" {lat_max}, {lon_min} {lat_max}, {lon_min} {lat_min}))"
           )
           results = asf.geo_search(
               intersectsWith=wkt_polygon,
