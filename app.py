@@ -510,7 +510,7 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- CLEAN GEOGRAPHIC MAPPING FOR ALMATY REGION ---
+  # --- STANDARD RASTER RENDERING FROM NATIVE METADATA ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
@@ -520,8 +520,8 @@ with col_right:
         w_down = src.width // downsample_factor
 
         img_data = src.read(1, out_shape=(h_down, w_down)).astype(float)
+        bounds = src.bounds  # Используем чистые метаданные файла без подгонов!
 
-        # Очистка NoData / артефактов
         img_data[np.isnan(img_data)] = np.nan
         img_data[(img_data == 0) | (img_data > 10000) | (img_data < -10000)] = (
             np.nan
@@ -574,18 +574,15 @@ with col_right:
             rgba_img[~active_mask, 3] = 0
             rgba_img[active_mask, 3] = 210
 
-            # Точные географические границы целевой зоны Алматы
-            almaty_raster_bounds = [[42.8, 76.5], [43.5, 77.3]]
-
-            # Накладываем растр строго на регион Алматы
+            # Накладываем растр по родным границам GeoTIFF файла
             folium.raster_layers.ImageOverlay(
                 image=rgba_img,
-                bounds=almaty_raster_bounds,
+                bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
                 opacity=0.9,
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
 
-            # --- МАРКЕРЫ ЛОКАЛЬНЫХ ДЕФОРМАЦИЙ СТРОГО В ЗОНЕ АЛМАТЫ ---
+            # --- НАУЧНЫЙ РАСЧЕТ КООРДИНАТ ДЕФОРМАЦИЙ ЧЕРЕЗ AFFINE TRANSFORM ---
             clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
             height_arr, width_arr = clean_data.shape
             max_local = (
@@ -604,11 +601,11 @@ with col_right:
             y_idxs, x_idxs = np.where(max_local | min_local)
 
             for y_idx, x_idx in zip(y_idxs[::4], x_idxs[::4]):
-              lat = almaty_raster_bounds[1][0] - (y_idx / height_arr) * (
-                  almaty_raster_bounds[1][0] - almaty_raster_bounds[0][0]
-              )
-              lon = almaty_raster_bounds[0][1] + (x_idx / width_arr) * (
-                  almaty_raster_bounds[1][1] - almaty_raster_bounds[0][1]
+              orig_y = y_idx * downsample_factor
+              orig_x = x_idx * downsample_factor
+              # Стандартное аффинное преобразование rasterio: пиксели в гео-координаты
+              lon, lat = rasterio.transform.xy(
+                  src.transform, orig_y, orig_x
               )
 
               val = smoothed_detrended[y_idx, x_idx]
@@ -617,6 +614,7 @@ with col_right:
                   "Local Uplift" if val > 0 else "Local Subsidence"
               )
 
+2026-11-15 07:24:08.864 Uvicorn server started on :::8501
               folium.CircleMarker(
                   location=[lat, lon],
                   radius=5,
@@ -636,7 +634,7 @@ with col_right:
     except Exception as e:
       st.error(f"❌ Ошибка рендеринга растра: {str(e)}")
   else:
-    st.warning(f"ℹ️ Файл `{target_tif}` не найден в репозитории.")
+    st.warning(f`ℹ️ Файл `{target_tif}` не найден в репозитории.`)
 
   st_folium(m, use_container_width=True, height=450, returned_objects=[])
 
