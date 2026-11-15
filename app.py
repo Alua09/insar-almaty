@@ -2,14 +2,10 @@ from datetime import datetime
 import math
 import os
 import folium
-from folium.plugins import HeatMap
 import matplotlib.cm as cm
 import numpy as np
 import rasterio
 import requests
-import scipy.ndimage as ndimage
-from scipy.ndimage import gaussian_filter, label, median_filter
-from scipy.ndimage import sum as nd_sum
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -94,7 +90,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Metrics with updated English tooltips
+# Metrics
 m1, m2, m3, m4 = st.columns(4)
 
 with m1:
@@ -190,7 +186,6 @@ selected_pair = st.sidebar.selectbox(
     ],
 )
 
-# Точное соответствие именам файлов в репозитории GitHub
 raster_files = {
     "June — July (Jun-Jul)": "displacement_pair_1_small.tif",
     "July — August (Jul-Aug)": "displacement_pair_2_small.tif",
@@ -221,14 +216,6 @@ st.sidebar.markdown(
                 <span style="color: #334155;"><b>Earthquakes (USGS):</b> Shocks</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="width: 14px; height: 14px; background-color: #dc2626; border-radius: 50%; display: inline-block; border: 2px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.5);"></span>
-                <span style="color: #334155;"><b>Red markers:</b> InSAR Uplift Center</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="width: 14px; height: 14px; background-color: #2563eb; border-radius: 50%; display: inline-block; border: 2px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.5);"></span>
-                <span style="color: #334155;"><b>Blue markers:</b> InSAR Subsidence Center</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="background-color: #10b981; color: white; border-radius: 4px; padding: 0px 4px; font-size: 11px; font-weight: bold;">🛡️</span>
                 <span style="color: #334155;"><b>Green markers:</b> Evacuation Points</span>
             </div>
@@ -243,10 +230,6 @@ st.sidebar.markdown(
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="width: 16px; height: 3px; background-color: #eab308; display: inline-block; border-radius: 2px;"></span>
                 <span style="color: #334155;"><b>Kemin-Chilik Zone</b></span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="width: 16px; height: 3px; background-color: #dc2626; border-style: dashed; display: inline-block;"></span>
-                <span style="color: #334155;"><b>Evacuation Routes</b></span>
             </div>
         </div>
     </div>
@@ -278,25 +261,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
   return R * c
 
 
-def calculate_nearest_evacuation_route(quake_lat, quake_lon, shelters):
-  min_dist = float("inf")
-  nearest_shelter = None
-  for shelter in shelters:
-    dist = calculate_distance(
-        quake_lat, quake_lon, shelter["coords"][0], shelter["coords"][1]
-    )
-    if dist < min_dist:
-      min_dist = dist
-      nearest_shelter = shelter
-  if nearest_shelter is not None:
-    route_coords = [
-        (quake_lat, quake_lon),
-        (nearest_shelter["coords"][0], nearest_shelter["coords"][1]),
-    ]
-    return route_coords, nearest_shelter, min_dist
-  return None, None, float("inf")
-
-
 def send_telegram_alert(token, chat_id, message_text):
   if not token or not chat_id:
     return False, "Specify Token and Chat ID!"
@@ -314,7 +278,6 @@ def send_telegram_alert(token, chat_id, message_text):
 
 
 # USGS data gathering
-quake_markers = []
 filtered_events = []
 high_magnitude_alerts = []
 usgs_feed_url = (
@@ -412,34 +375,11 @@ with col_left:
             "%m-%d %H:%M"
         )
         mag, place, dist = prop["mag"], prop["place"], event["distance_to_almaty"]
-        lon, lat = geom["coordinates"][0], geom["coordinates"][1]
         st.warning(
             f"**M:{mag}** | {place}\n📍 **{dist} km** from Almaty | ⏰ {eq_time}"
         )
     else:
       st.info("No recent earthquakes found within a 450 km radius.")
-
-  if high_magnitude_alerts:
-    with st.expander(
-        "🛡️ EMERGENCY EVACUATION: Assembly Points & Routing", expanded=True
-    ):
-      st.error(
-          f"🎯 **Recommended Evacuation Point:**\n\n**{nearest_shelter['name']}** (~{min_dist} km)"
-      )
-      st.divider()
-      for s in shelters:
-        st.markdown(
-            f"🟢 **{s['name']}**  \n📜 *{s['desc']}*  \n📍 `Coordinates: {s['coords'][0]}, {s['coords'][1]}`"
-        )
-        st.divider()
-  else:
-    with st.expander(
-        "🛡️ Backup Assembly & Evacuation Points (Standby Mode)", expanded=False
-    ):
-      st.info(
-          "ℹ️ Automated emergency routing activates only upon declaration of a"
-          " real seismic alert (M ≥ 4.5 in the last 48 hours)."
-      )
 
   with st.expander("📲 Manual PUSH Alert Testing (Demo)", expanded=False):
     if st.button("🚨 Simulate Emergency & Send Telegram PUSH"):
@@ -457,10 +397,7 @@ with col_left:
         st.error(res_msg)
 
   with st.expander("🛰️ NASA ASF Cloud Integration (asf-search)", expanded=True):
-    st.markdown(
-        "Query NASA Earthdata catalog via `asf-search` for NISAR GUNW"
-        " interferograms."
-    )
+    st.markdown("Query NASA Earthdata catalog for NISAR GUNW interferograms.")
     if st.button("🔍 Search NASA ASF Archive"):
       if ASF_AVAILABLE:
         try:
@@ -470,7 +407,6 @@ with col_left:
               f"POLYGON(({lon_min} {lat_min}, {lon_max} {lat_min}, {lon_max}"
               f" {lat_max}, {lon_min} {lat_max}, {lon_min} {lat_min}))"
           )
-
           results = asf.geo_search(
               intersectsWith=wkt_polygon,
               start="2026-06-01",
@@ -524,7 +460,7 @@ with col_right:
         tooltip=f"⚠️ Tectonic Fault: {fault['name']}",
     ).add_to(m)
 
-  # EVACUATION POINTS
+  # Evacuation points
   for s in shelters:
     shelter_icon_html = """
             <div style="background-color: #10b981; width: 28px; height: 28px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; font-size: 14px;">
@@ -541,14 +477,13 @@ with col_right:
         tooltip=f"🏠 Assembly Point: {s['name']}",
     ).add_to(m)
 
-  # USGS EARTHQUAKE EPICENTERS & EVACUATION ROUTES
+  # USGS Earthquakes
   for event in filtered_events:
     geom = event["geometry"]
     prop = event["properties"]
     lon, lat = geom["coordinates"][0], geom["coordinates"][1]
     mag = prop["mag"]
     place = prop["place"]
-
     folium.CircleMarker(
         location=[lat, lon],
         radius=max(float(mag) * 2.5, 5),
@@ -564,26 +499,15 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-    dist_to_alm = calculate_distance(ALMATY_LAT, ALMATY_LON, lat, lon)
-    if dist_to_alm <= 60:
-      route, target_shelter, _ = calculate_nearest_evacuation_route(
-          lat, lon, shelters
-      )
-      if route:
-        folium.PolyLine(
-            route,
-            color="crimson",
-            weight=3,
-            dash_array="5, 5",
-            tooltip=f"Evacuation Route to: {target_shelter['name']}",
-        ).add_to(m)
-
-  # --- SCIENTIFIC PROCESSING & InSAR RENDERING (WITH ERROR CATCHING) ---
+  # --- LIGHTWEIGHT SAFE InSAR RENDERING (MEMORY OPTIMIZED) ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
       with rasterio.open(target_tif) as src:
-        img_data = src.read(1).astype(float)
+        # Безопасное чтение с уменьшением размера в 2 раза для защиты от OOM / MemoryError
+        img_data = src.read(1, out_shape=(src.height // 2, src.width // 2)).astype(
+            float
+        )
         bounds = src.bounds
 
         img_data[np.isnan(img_data)] = np.nan
@@ -593,124 +517,35 @@ with col_right:
 
         valid_mask = ~np.isnan(img_data)
         if np.any(valid_mask):
-          filled_data = np.where(valid_mask, img_data, 0.0)
-
-          trend = gaussian_filter(filled_data, sigma=50)
-          detrended_data = img_data - trend
-          detrended_data[~valid_mask] = np.nan
-
-          detrended_data[:20, :] = np.nan
-          detrended_data[-20:, :] = np.nan
-          detrended_data[:, :20] = np.nan
-          detrended_data[:, -20:] = np.nan
-
-          smoothed_detrended = median_filter(
-              np.nan_to_num(detrended_data, nan=0.0), size=3
-          )
-          smoothed_detrended[~valid_mask] = np.nan
-
-          transform = src.transform
-          height, width = img_data.shape
-          rows = np.arange(height)
-          _, lats_col = rasterio.transform.xy(
-              transform, rows, np.full_like(rows, width // 2)
-          )
-          for y_idx, lat_val in enumerate(lats_col):
-            if lat_val < 42.9:
-              smoothed_detrended[y_idx, :] = np.nan
-              valid_mask[y_idx, :] = False
-
-          valid_vals = smoothed_detrended[~np.isnan(smoothed_detrended)]
+          valid_vals = img_data[valid_mask]
           if valid_vals.size > 0:
             vmin, vmax = valid_vals.min(), valid_vals.max()
             v_abs_max = max(abs(vmin), abs(vmax))
             if v_abs_max == 0:
               v_abs_max = 1.0
 
-            norm_data = (smoothed_detrended + v_abs_max) / (2 * v_abs_max)
+            norm_data = (img_data + v_abs_max) / (2 * v_abs_max)
             norm_data = np.clip(norm_data, 0, 1)
 
             colormap = cm.coolwarm
             rgba_float = colormap(norm_data)
             rgba_img = (rgba_float * 255).astype(np.uint8)
 
-            noise_mask = (np.abs(smoothed_detrended) < (v_abs_max * 0.15)) | (
-                ~valid_mask
-            )
-
-            def remove_small_clusters(mask, min_size=50):
-              labeled, num_features = label(mask)
-              if num_features == 0:
-                return mask
-              component_sizes = nd_sum(mask, labeled, range(1, num_features + 1))
-              too_small = component_sizes < min_size
-              remove_pixel = too_small[labeled - 1]
-              labeled[remove_pixel] = 0
-              return labeled > 0
-
-            active_mask = ~noise_mask
-            active_mask = remove_small_clusters(active_mask, min_size=60)
-
-            rgba_img[~active_mask, 3] = 0
-            rgba_img[active_mask, 3] = 210
+            rgba_img[~valid_mask, 3] = 0
+            rgba_img[valid_mask, 3] = 200
 
             folium.raster_layers.ImageOverlay(
                 image=rgba_img,
                 bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-                opacity=0.9,
+                opacity=0.85,
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
-
-            clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
-            max_local = (
-                clean_data
-                == ndimage.maximum_filter(clean_data, size=max(60, height // 10))
-            ) & (clean_data > v_abs_max * 0.4)
-            min_local = (
-                clean_data
-                == ndimage.minimum_filter(clean_data, size=max(60, height // 10))
-            ) & (clean_data < -v_abs_max * 0.4)
-
-            y_idxs, x_idxs = np.where(max_local | min_local)
-
-            for y_idx, x_idx in zip(y_idxs[::4], x_idxs[::4]):
-              lon, lat = rasterio.transform.xy(transform, y_idx, x_idx)
-              val = smoothed_detrended[y_idx, x_idx]
-
-              if (
-                  bounds.bottom <= lat <= bounds.top
-                  and bounds.left <= lon <= bounds.right
-              ):
-                color_marker = "#dc2626" if val > 0 else "#2563eb"
-                label_type = (
-                    "Local Uplift" if val > 0 else "Local Subsidence"
-                )
-
-                folium.CircleMarker(
-                    location=[lat, lon],
-                    radius=6,
-                    color="#ffffff",
-                    weight=2,
-                    fill=True,
-                    fill_color=color_marker,
-                    fill_opacity=0.9,
-                    popup=folium.Popup(
-                        f"<b>🚨 InSAR Deformation Center</b><br>Type:"
-                        f" {label_type}<br>Value: {val:.2f} rad",
-                        max_width=250,
-                    ),
-                    tooltip=f"InSAR Center: {val:.2f} rad",
-                ).add_to(m)
-
     except Exception as e:
       st.error(
-          "❌ Ошибка рендеринга слоя InSAR (возможно, не хватает памяти или"
-          f" поврежден файл): {str(e)}"
+          f"❌ Ошибка рендеринга растра (превышен лимит памяти RAM): {str(e)}"
       )
   else:
-    st.info(
-        f"ℹ️ Файл `{target_tif}` не найден в корневом каталоге репозитория."
-    )
+    st.warning(f"ℹ️ Файл `{target_tif}` не найден в репозитории.")
 
   st_folium(m, use_container_width=True, height=450, returned_objects=[])
 
