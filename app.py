@@ -6,6 +6,8 @@ import matplotlib.cm as cm
 import numpy as np
 import rasterio
 import requests
+from scipy.ndimage import gaussian_filter, label, median_filter
+from scipy.ndimage import sum as nd_sum
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -214,6 +216,14 @@ st.sidebar.markdown(
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="width: 12px; height: 12px; background-color: #f97316; border-radius: 50%; display: inline-block; border: 1px solid #b45309;"></span>
                 <span style="color: #334155;"><b>Earthquakes (USGS):</b> Shocks</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="width: 14px; height: 14px; background-color: #dc2626; border-radius: 50%; display: inline-block; border: 2px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.5);"></span>
+                <span style="color: #334155;"><b>Red markers:</b> InSAR Uplift Center</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="width: 14px; height: 14px; background-color: #2563eb; border-radius: 50%; display: inline-block; border: 2px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.5);"></span>
+                <span style="color: #334155;"><b>Blue markers:</b> InSAR Subsidence Center</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="background-color: #10b981; color: white; border-radius: 4px; padding: 0px 4px; font-size: 11px; font-weight: bold;">🛡️</span>
@@ -499,12 +509,12 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- LIGHTWEIGHT SAFE InSAR RENDERING (MEMORY OPTIMIZED) ---
+  # --- FULL InSAR PROCESSING WITH DEFORMATION MARKERS & MEMORY PROTECTION ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
       with rasterio.open(target_tif) as src:
-        # Безопасное чтение с уменьшением размера в 2 раза для защиты от OOM / MemoryError
+        # Читаем уменьшенную в 2 раза копию для защиты от OOM
         img_data = src.read(1, out_shape=(src.height // 2, src.width // 2)).astype(
             float
         )
@@ -517,33 +527,108 @@ with col_right:
 
         valid_mask = ~np.isnan(img_data)
         if np.any(valid_mask):
-          valid_vals = img_data[valid_mask]
+          filled_data = np.where(valid_mask, img_data, 0.0)
+
+          # Тренд и фильтрация
+          trend = gaussian_filter(filled_data, sigma=30)
+          detrended_data = img_data - trend
+          detrended_data[~valid_mask] = np.nan
+
+          smoothed_detrended = median_filter(
+              np.nan_to_num(detrended_data, nan=0.0), size=3
+          )
+          smoothed_detrended[~valid_mask] = np.nan
+
+          valid_vals = smoothed_detrended[~np.isnan(smoothed_detrended)]
           if valid_vals.size > 0:
             vmin, vmax = valid_vals.min(), valid_vals.max()
             v_abs_max = max(abs(vmin), abs(vmax))
             if v_abs_max == 0:
               v_abs_max = 1.0
 
-            norm_data = (img_data + v_abs_max) / (2 * v_abs_max)
+            norm_data = (smoothed_detrended + v_abs_max) / (2 * v_abs_max)
             norm_data = np.clip(norm_data, 0, 1)
 
             colormap = cm.coolwarm
             rgba_float = colormap(norm_data)
             rgba_img = (rgba_float * 255).astype(np.uint8)
 
-            rgba_img[~valid_mask, 3] = 0
-            rgba_img[valid_mask, 3] = 200
+            # Маска для шума
+            noise_mask = (np.abs(smoothed_detrended) < (v_abs_max * 0.15)) | (
+                ~valid_mask
+            )
 
+            def remove_small_clusters(mask, min_size=40):
+              labeled, num_features = label(mask)
+              if num_features == 0:
+                return mask
+              component_sizes = nd_sum(mask, labeled, range(1, num_features + 1))
+              too_small = component_sizes < min_size
+              remove_pixel = too_small[labeled - 1]
+              labeled[remove_pixel] = 0
+              return labeled > 0
+
+            active_mask = ~noise_mask
+            active_mask = remove_small_clusters(active_mask, min_size=40)
+
+            rgba_img[~active_mask, 3] = 0
+            rgba_img[active_mask, 3] = 210
+
+            # Накладываем растр на карту
             folium.raster_layers.ImageOverlay(
                 image=rgba_img,
                 bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-                opacity=0.85,
+                opacity=0.9,
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
+
+            # --- ВОССТАНОВЛЕНИЕ МАРКЕРОВ ЛОКАЛЬНЫХ ДЕФОРМАЦИЙ ---
+            clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
+            height, width = clean_data.shape
+            max_local = (
+                clean_data
+                == ndimage.maximum_filter(clean_data, size=max(40, height // 12))
+            ) & (clean_data > v_abs_max * 0.4)
+            min_local = (
+                clean_data
+                == ndimage.minimum_filter(clean_data, size=max(40, height // 12))
+            ) & (clean_data < -v_abs_max * 0.4)
+
+            y_idxs, x_idxs = np.where(max_local | min_local)
+
+            for y_idx, x_idx in zip(y_idxs[::3], x_idxs[::3]):
+              lon, lat = rasterio.transform.xy(
+                  src.transform, y_idx * 2, x_idx * 2
+              )  # умножаем на 2 из-за out_shape
+              val = smoothed_detrended[y_idx, x_idx]
+
+              if (
+                  bounds.bottom <= lat <= bounds.top
+                  and bounds.left <= lon <= bounds.right
+              ):
+                color_marker = "#dc2626" if val > 0 else "#2563eb"
+                label_type = (
+                    "Local Uplift" if val > 0 else "Local Subsidence"
+                )
+
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=5,
+                    color="#ffffff",
+                    weight=1.5,
+                    fill=True,
+                    fill_color=color_marker,
+                    fill_opacity=0.9,
+                    popup=folium.Popup(
+                        f"<b>🚨 InSAR Center</b><br>Type:"
+                        f" {label_type}<br>Value: {val:.2f} rad",
+                        max_width=250,
+                    ),
+                    tooltip=f"InSAR Center: {val:.2f} rad",
+                ).add_to(m)
+
     except Exception as e:
-      st.error(
-          f"❌ Ошибка рендеринга растра (превышен лимит памяти RAM): {str(e)}"
-      )
+      st.error(f"❌ Ошибка рендеринга растра: {str(e)}")
   else:
     st.warning(f"ℹ️ Файл `{target_tif}` не найден в репозитории.")
 
