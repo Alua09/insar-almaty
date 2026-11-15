@@ -188,15 +188,32 @@ selected_pair = st.sidebar.selectbox(
     ],
 )
 
-raster_files = {
-    "June — July (Jun-Jul)": "displacement_pair_1_small.tif",
-    "July — August (Jul-Aug)": "displacement_pair_2_small.tif",
-    "August — September (Aug-Sep)": "displacement_pair_3_small.tif",
-    "September — October (Sep-Oct)": "displacement_pair_4_small.tif",
-    "June — October (Seasonal Summary)": (
-        "displacement_pair_cumulative_small.tif"
-    ),
-}
+# Автоопределение пути к файлам (локально на C:\ или в корне репозитория на Cloud)
+if os.path.exists(r"C:\InSAR.Almaty"):
+  DATA_DIR = r"C:\InSAR.Almaty"
+  raster_files = {
+      "June — July (Jun-Jul)": os.path.join(DATA_DIR, "displacement_pair_1.tif"),
+      "July — August (Jul-Aug)": os.path.join(DATA_DIR, "displacement_pair_2.tif"),
+      "August — September (Aug-Sep)": os.path.join(
+          DATA_DIR, "displacement_pair_3.tif"
+      ),
+      "September — October (Sep-Oct)": os.path.join(
+          DATA_DIR, "displacement_pair_4.tif"
+      ),
+      "June — October (Seasonal Summary)": os.path.join(
+          DATA_DIR, "displacement_pair_cumulative.tif"
+      ),
+  }
+else:
+  raster_files = {
+      "June — July (Jun-Jul)": "displacement_pair_1_small.tif",
+      "July — August (Jul-Aug)": "displacement_pair_2_small.tif",
+      "August — September (Aug-Sep)": "displacement_pair_3_small.tif",
+      "September — October (Sep-Oct)": "displacement_pair_4_small.tif",
+      "June — October (Seasonal Summary)": (
+          "displacement_pair_cumulative_small.tif"
+      ),
+  }
 
 # --- MAP LEGEND ---
 st.sidebar.markdown("---")
@@ -507,7 +524,7 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- SCIENTIFIC PROCESSING & InSAR RENDERING (ORIGINAL PIPELINE) ---
+  # --- SCIENTIFIC PROCESSING & InSAR RENDERING ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
@@ -636,9 +653,13 @@ with col_right:
     except Exception as e:
       st.error(f"❌ InSAR layer rendering error: {str(e)}")
   else:
-    st.warning(f"ℹ️ File `{target_tif}` not found in repository.")
+    st.warning(
+        f"ℹ️ File `{target_tif}` not found. Please ensure `.tif` files are"
+        " uploaded to your repository."
+    )
 
-st_folium(m, height=450, returned_objects=[], key=selected_pair)
+  # Уникальный ключ key=selected_pair гарантирует правильное обновление DOM в браузере без ошибки removeChild
+  st_folium(m, height=450, returned_objects=[], key=selected_pair)
 
 st.markdown("---")
 st.caption(
