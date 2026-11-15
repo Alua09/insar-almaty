@@ -301,12 +301,16 @@ try:
     geom = event["geometry"]
     lon, lat = geom["coordinates"][0], geom["coordinates"][1]
     dist = calculate_distance(ALMATY_LAT, ALMATY_LON, lat, lon)
+    
+    # Общая лента сейсмичности отображает события в радиусе 450 км
     if dist <= 450:
       event["distance_to_almaty"] = round(dist, 1)
       filtered_events.append(event)
       event_time = datetime.fromtimestamp(event["properties"]["time"] / 1000)
       hours_ago = (now - event_time).total_seconds() / 3600
-      if event["properties"]["mag"] >= 4.5 and hours_ago <= 48:
+      
+      # АВТО-ПУШ срабатывает ТОЛЬКО если толчок ближе 100 км к Алматы, M >= 4.5 и свежий (<= 48 часов)
+      if event["properties"]["mag"] >= 4.5 and hours_ago <= 48 and dist <= 100:
         high_magnitude_alerts.append(event)
 except Exception:
   pass
@@ -352,13 +356,13 @@ col_left, col_right = st.columns([1, 2], gap="medium")
 with col_left:
   if high_magnitude_alerts:
     st.markdown(
-        """<div class="alert-danger">🚨 AUTOMATIC ALERT: Seismic events M ≥ 4.5 detected in the last 48 hours!</div>""",
+        """<div class="alert-danger">🚨 AUTOMATIC ALERT: Local seismic events M ≥ 4.5 detected within 100 km in the last 48 hours!</div>""",
         unsafe_allow_html=True,
     )
     if "auto_alert_sent" not in st.session_state:
       auto_msg = (
           "🚨 **AUTOMATIC EMERGENCY ALERT (InSAR.Almaty)**\n\n"
-          "⚠️ Fresh seismic event M ≥ 4.5 detected.\n\n"
+          "⚠️ Local seismic event M ≥ 4.5 detected near the city.\n\n"
           "📍 **Nearest Evacuation Point:**\n"
           f"👉 *{nearest_shelter['name']}* ({nearest_shelter['desc']})\n"
           f"📏 Distance: ~{min_dist} km\n\n"
@@ -370,7 +374,7 @@ with col_left:
         st.toast("⚡ Automatic Telegram PUSH successfully sent!", icon="🚀")
   else:
     st.markdown(
-        """<div class="alert-safe">🟢 Alert System: No critical shock threats detected in the last 48 hours. Monitoring is normal.</div>""",
+        """<div class="alert-safe">🟢 Alert System: No critical local shock threats (≤ 100 km) detected in the last 48 hours. Monitoring is normal.</div>""",
         unsafe_allow_html=True,
     )
 
@@ -507,7 +511,7 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- SCIENTIFIC PROCESSING & InSAR RENDERING (ORIGINAL PIPELINE) ---
+  # --- SCIENTIFIC PROCESSING & InSAR RENDERING ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
