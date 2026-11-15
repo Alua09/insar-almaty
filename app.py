@@ -184,17 +184,16 @@ selected_pair = st.sidebar.selectbox(
         "July — August (Jul-Aug)",
         "August — September (Aug-Sep)",
         "September — October (Sep-Oct)",
-        "October — June / Extra Pair",
         "June — October (Seasonal Summary)",
     ],
 )
 
+# Используем имена файлов, соответствующие вашему репозиторию на Streamlit Cloud
 raster_files = {
     "June — July (Jun-Jul)": "displacement_pair_1_small.tif",
     "July — August (Jul-Aug)": "displacement_pair_2_small.tif",
     "August — September (Aug-Sep)": "displacement_pair_3_small.tif",
     "September — October (Sep-Oct)": "displacement_pair_4_small.tif",
-    "October — June / Extra Pair": "displacement_pair_5_small.tif",
     "June — October (Seasonal Summary)": (
         "displacement_pair_cumulative_small.tif"
     ),
@@ -288,7 +287,6 @@ def send_telegram_alert(token, chat_id, message_text):
     return False, f"Network Error: {str(e)}"
 
 
-# USGS data gathering
 filtered_events = []
 high_magnitude_alerts = []
 usgs_feed_url = (
@@ -510,35 +508,47 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- STANDARD RASTER RENDERING FROM NATIVE METADATA ---
+  # --- SCIENTIFIC PROCESSING & InSAR RENDERING (ORIGINAL PIPELINE) ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
       with rasterio.open(target_tif) as src:
-        downsample_factor = 2
-        h_down = src.height // downsample_factor
-        w_down = src.width // downsample_factor
-
-        img_data = src.read(1, out_shape=(h_down, w_down)).astype(float)
+        img_data = src.read(1).astype(float)
         bounds = src.bounds
 
         img_data[np.isnan(img_data)] = np.nan
-        img_data[(img_data == 0) | (img_data > 10000) | (img_data < -10000)] = (
-            np.nan
-        )
+        img_data[
+            (img_data == 0) | (img_data > 10000) | (img_data < -10000)
+        ] = np.nan
 
         valid_mask = ~np.isnan(img_data)
         if np.any(valid_mask):
           filled_data = np.where(valid_mask, img_data, 0.0)
 
-          trend = gaussian_filter(filled_data, sigma=30)
+          trend = gaussian_filter(filled_data, sigma=50)
           detrended_data = img_data - trend
           detrended_data[~valid_mask] = np.nan
+
+          detrended_data[:20, :] = np.nan
+          detrended_data[-20:, :] = np.nan
+          detrended_data[:, :20] = np.nan
+          detrended_data[:, -20:] = np.nan
 
           smoothed_detrended = median_filter(
               np.nan_to_num(detrended_data, nan=0.0), size=3
           )
           smoothed_detrended[~valid_mask] = np.nan
+
+          transform = src.transform
+          height, width = img_data.shape
+          rows = np.arange(height)
+          _, lats_col = rasterio.transform.xy(
+              transform, rows, np.full_like(rows, width // 2)
+          )
+          for y_idx, lat_val in enumerate(lats_col):
+            if lat_val < 42.9:
+              smoothed_detrended[y_idx, :] = np.nan
+              valid_mask[y_idx, :] = False
 
           valid_vals = smoothed_detrended[~np.isnan(smoothed_detrended)]
           if valid_vals.size > 0:
@@ -558,7 +568,7 @@ with col_right:
                 ~valid_mask
             )
 
-            def remove_small_clusters(mask, min_size=40):
+            def remove_small_clusters(mask, min_size=50):
               labeled, num_features = label(mask)
               if num_features == 0:
                 return mask
@@ -569,7 +579,7 @@ with col_right:
               return labeled > 0
 
             active_mask = ~noise_mask
-            active_mask = remove_small_clusters(active_mask, min_size=40)
+            active_mask = remove_small_clusters(active_mask, min_size=60)
 
             rgba_img[~active_mask, 3] = 0
             rgba_img[active_mask, 3] = 210
@@ -581,61 +591,58 @@ with col_right:
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
 
-            # --- LOCAL DEFORMATION CENTERS VIA AFFINE TRANSFORM ---
             clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
-            height_arr, width_arr = clean_data.shape
             max_local = (
                 clean_data
                 == ndimage.maximum_filter(
-                    clean_data, size=max(30, height_arr // 10)
+                    clean_data, size=max(60, height // 10)
                 )
             ) & (clean_data > v_abs_max * 0.4)
             min_local = (
                 clean_data
                 == ndimage.minimum_filter(
-                    clean_data, size=max(30, height_arr // 10)
+                    clean_data, size=max(60, height // 10)
                 )
             ) & (clean_data < -v_abs_max * 0.4)
 
             y_idxs, x_idxs = np.where(max_local | min_local)
 
             for y_idx, x_idx in zip(y_idxs[::4], x_idxs[::4]):
-              orig_y = y_idx * downsample_factor
-              orig_x = x_idx * downsample_factor
-              lon, lat = rasterio.transform.xy(
-                  src.transform, orig_y, orig_x
-              )
-
+              lon, lat = rasterio.transform.xy(transform, y_idx, x_idx)
               val = smoothed_detrended[y_idx, x_idx]
-              color_marker = "#dc2626" if val > 0 else "#2563eb"
-              label_type = (
-                  "Local Uplift" if val > 0 else "Local Subsidence"
-              )
 
-              folium.CircleMarker(
-                  location=[lat, lon],
-                  radius=5,
-                  color="#ffffff",
-                  weight=1.5,
-                  fill=True,
-                  fill_color=color_marker,
-                  fill_opacity=0.9,
-                  popup=folium.Popup(
-                      f"<b>🚨 InSAR Deformation Center</b><br>Type:"
-                      f" {label_type}<br>Value: {val:.2f} rad",
-                      max_width=250,
-                  ),
-                  tooltip=f"InSAR Center: {val:.2f} rad",
-              ).add_to(m)
+              if (
+                  bounds.bottom <= lat <= bounds.top
+                  and bounds.left <= lon <= bounds.right
+              ):
+                color_marker = "#dc2626" if val > 0 else "#2563eb"
+                label_type = "Local Uplift" if val > 0 else "Local Subsidence"
+
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=6,
+                    color="#ffffff",
+                    weight=2,
+                    fill=True,
+                    fill_color=color_marker,
+                    fill_opacity=0.9,
+                    popup=folium.Popup(
+                        f"<b>🚨 InSAR Deformation Center</b><br>Type:"
+                        f" {label_type}<br>Value: {val:.2f} rad",
+                        max_width=250,
+                    ),
+                    tooltip=f"InSAR Center: {val:.2f} rad",
+                ).add_to(m)
 
     except Exception as e:
-      st.error(f"❌ Ошибка рендеринга растра: {str(e)}")
+      st.error(f"❌ InSAR layer rendering error: {str(e)}")
   else:
-    st.warning(f"ℹ️ Файл `{target_tif}` не найден в репозитории.")
+    st.warning(f"ℹ️ File `{target_tif}` not found in repository.")
 
-  st_folium(m, use_container_width=True, height=450, returned_objects=[])
+  st_folium(m, height=450, returned_objects=[])
 
 st.markdown("---")
 st.caption(
     "NASA Space Apps Challenge 2026 | ALDA Space Team — InSAR.Almaty Platform"
 )
+```[cite: 8]
