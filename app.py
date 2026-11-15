@@ -510,21 +510,42 @@ with col_right:
         tooltip=f"USGS Earthquake (M: {mag})",
     ).add_to(m)
 
-  # --- InSAR PROCESSING WITH FIXED ALMATY BOUNDS ---
+  # --- PROFESSIONAL GEOGRAPHIC RASTER RENDERING ---
   target_tif = raster_files.get(selected_pair)
   if target_tif and os.path.exists(target_tif):
     try:
       with rasterio.open(target_tif) as src:
-        img_data = src.read(1, out_shape=(src.height // 2, src.width // 2)).astype(
-            float
-        )
+        # Читаем с пониженным разрешением для оптимизации памяти на Streamlit Cloud
+        downsample_factor = 2
+        h_down = src.height // downsample_factor
+        w_down = src.width // downsample_factor
 
+        img_data = src.read(1, out_shape=(h_down, w_down)).astype(float)
+        bounds = src.bounds
+
+        # Очистка некорректных значений (NoData / выбросы)
         img_data[np.isnan(img_data)] = np.nan
         img_data[(img_data == 0) | (img_data > 10000) | (img_data < -10000)] = (
             np.nan
         )
 
+        # Строгая геопривязка через аффинный трансформатор растра
+        # Проверяем реальные географические координаты пикселей, чтобы исключить области вне Алматы (например, Иссык-Куль)
+        rows = np.arange(h_down)
+        cols = np.arange(w_down)
+        # Получаем сетку широт для каждой строки растра
+        _, lats_col = rasterio.transform.xy(
+            src.transform, rows, np.full_like(rows, w_down // 2)
+        )
+
         valid_mask = ~np.isnan(img_data)
+
+        # Маскируем по географической широте (оставляем только севернее 42.85°, в пределах агломерации Алматы)
+        for y_idx, lat_val in enumerate(lats_col):
+          if lat_val < 42.85 or lat_val > 43.65:
+            img_data[y_idx, :] = np.nan
+            valid_mask[y_idx, :] = False
+
         if np.any(valid_mask):
           filled_data = np.where(valid_mask, img_data, 0.0)
 
@@ -571,67 +592,63 @@ with col_right:
             rgba_img[~active_mask, 3] = 0
             rgba_img[active_mask, 3] = 210
 
-            # ЖЕСТКО ЗАДАННЫЕ ГРАНИЦЫ ДЛЯ АЛМАТЫ И ОКРЕСТНОСТЕЙ (исключают Иссык-Куль)
-            almaty_custom_bounds = [[42.9, 76.5], [43.6, 77.3]]
-
+            # Накладываем растр с исходными границами файла, обрезанными по географической маске
             folium.raster_layers.ImageOverlay(
                 image=rgba_img,
-                bounds=almaty_custom_bounds,
+                bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
                 opacity=0.9,
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
 
-            # --- МАРКЕРЫ ЛОКАЛЬНЫХ ДЕФОРМАЦИЙ ---
+            # --- НАУЧНЫЙ ПОИСК ЦЕНТРОВ ДЕФОРМАЦИЙ ЧЕРЕЗ РЕАЛЬНЫЙ TRANSFORM ---
             clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
-            height, width = clean_data.shape
+            height_arr, width_arr = clean_data.shape
             max_local = (
                 clean_data
-                == ndimage.maximum_filter(clean_data, size=max(40, height // 12))
+                == ndimage.maximum_filter(
+                    clean_data, size=max(30, height_arr // 10)
+                )
             ) & (clean_data > v_abs_max * 0.4)
             min_local = (
                 clean_data
-                == ndimage.minimum_filter(clean_data, size=max(40, height // 12))
+                == ndimage.minimum_filter(
+                    clean_data, size=max(30, height_arr // 10)
+                )
             ) & (clean_data < -v_abs_max * 0.4)
 
             y_idxs, x_idxs = np.where(max_local | min_local)
 
             for y_idx, x_idx in zip(y_idxs[::3], x_idxs[::3]):
-              # Пересчитываем координаты относительно принудительных границ
-              lat_val = (
-                  almaty_custom_bounds[1][0]
-                  + (
-                      almaty_custom_bounds[1][0] - almaty_custom_bounds[0][0]
-                  )
-                  * (1 - y_idx / height)
-                  * 0.5
-              )
-              # Простая аппроксимация для точечных маркеров внутри региона Алматы
+              # Точный расчет географических координат через матрицу трансформации растра (без подгонов!)
+              orig_y = y_idx * downsample_factor
+              orig_x = x_idx * downsample_factor
               lon, lat = rasterio.transform.xy(
-                  src.transform, y_idx * 2, x_idx * 2
+                  src.transform, orig_y, orig_x
               )
-              # Корректируем в зону Алматы, если координаты уходили далеко
-              lat = 43.2 + (lat - 42.0) * 0.3
-              lon = 76.8 + (lon - 76.0) * 0.3
 
-              val = smoothed_detrended[y_idx, x_idx]
-              color_marker = "#dc2626" if val > 0 else "#2563eb"
-              label_type = "Local Uplift" if val > 0 else "Local Subsidence"
+              # Проверка на вхождение в целевой прямоугольник агломерации
+              if 42.9 <= lat <= 43.5 and 76.6 <= lon <= 77.2:
+                val = smoothed_detrended[y_idx, x_idx]
+                color_marker = "#dc2626" if val > 0 else "#2563eb"
+                label_type = (
+                    "Local Uplift" if val > 0 else "Local Subsidence"
+                )
 
-              folium.CircleMarker(
-                  location=[lat, lon],
-                  radius=5,
-                  color="#ffffff",
-                  weight=1.5,
-                  fill=True,
-                  fill_color=color_marker,
-                  fill_opacity=0.9,
-                  popup=folium.Popup(
-                      f"<b>🚨 InSAR Center</b><br>Type:"
-                      f" {label_type}<br>Value: {val:.2f} rad",
-                      max_width=250,
-                  ),
-                  tooltip=f"InSAR Center: {val:.2f} rad",
-              ).add_to(m)
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=5,
+                    color="#ffffff",
+                    weight=1.5,
+                    fill=True,
+                    fill_color=color_marker,
+                    fill_opacity=0.9,
+                    popup=folium.Popup(
+                        f"<b>🚨 InSAR Deformation Center</b><br>Type:"
+                        f" {label_type}<br>Value: {val:.2f} rad",
+                        max_width=250,
+                    ),
+                    tooltip=f"InSAR Center: {val:.2f} rad",
+                ).add_to(m)
 
     except Exception as e:
       st.error(f"❌ Ошибка рендеринга растра: {str(e)}")
