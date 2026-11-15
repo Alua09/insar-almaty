@@ -86,7 +86,7 @@ st.markdown(
 st.markdown(
     """
     <div style="width: 100%; height: 120px; overflow: hidden; border-radius: 8px; margin-bottom: 8px;">
-        <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80" 
+        <img src="[https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80](https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80)" 
              style="width: 100%; height: 100%; object-fit: cover;">
     </div>
     """,
@@ -188,7 +188,6 @@ selected_pair = st.sidebar.selectbox(
     ],
 )
 
-# Используем имена файлов, соответствующие вашему репозиторию на Streamlit Cloud
 raster_files = {
     "June — July (Jun-Jul)": "displacement_pair_1_small.tif",
     "July — August (Jul-Aug)": "displacement_pair_2_small.tif",
@@ -274,7 +273,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 def send_telegram_alert(token, chat_id, message_text):
   if not token or not chat_id:
     return False, "Specify Token and Chat ID!"
-  url = f"https://api.telegram.org/bot{token}/sendMessage"
+  url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){token}/sendMessage"
   payload = {"chat_id": chat_id, "text": message_text, "parse_mode": "Markdown"}
   try:
     res = requests.post(url, json=payload, timeout=5)
@@ -290,7 +289,7 @@ def send_telegram_alert(token, chat_id, message_text):
 filtered_events = []
 high_magnitude_alerts = []
 usgs_feed_url = (
-    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson"
+    "[https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson)"
 )
 
 try:
