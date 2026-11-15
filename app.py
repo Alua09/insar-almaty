@@ -302,14 +302,12 @@ try:
     lon, lat = geom["coordinates"][0], geom["coordinates"][1]
     dist = calculate_distance(ALMATY_LAT, ALMATY_LON, lat, lon)
 
-    # Общая лента сейсмичности отображает события в радиусе 450 км
     if dist <= 450:
       event["distance_to_almaty"] = round(dist, 1)
       filtered_events.append(event)
       event_time = datetime.fromtimestamp(event["properties"]["time"] / 1000)
       hours_ago = (now - event_time).total_seconds() / 3600
 
-      # АВТО-ПУШ срабатывает ТОЛЬКО если толчок ближе 100 км к Алматы, M >= 4.5 и свежий (<= 48 часов)
       if event["properties"]["mag"] >= 4.5 and hours_ago <= 48 and dist <= 100:
         high_magnitude_alerts.append(event)
 except Exception:
@@ -371,7 +369,6 @@ with col_left:
       success, _ = send_telegram_alert(tg_token, tg_chat_id, auto_msg)
       if success:
         st.session_state["auto_alert_sent"] = True
-        st.toast("⚡ Automatic Telegram PUSH successfully sent to group!", icon="🚀")
   else:
     st.markdown(
         """<div class="alert-safe">🟢 Alert System: No critical local shock threats (≤ 100 km) detected in the last 48 hours. Monitoring is normal.</div>""",
@@ -417,7 +414,7 @@ with col_left:
           lon_min, lat_min, lon_max, lat_max = almaty_bbox
           wkt_polygon = (
               f"POLYGON(({lon_min} {lat_min}, {lon_max} {lat_min}, {lon_max}"
-              f" {lat_max}, {lon_min} {lat_max}, {lon_min} {lat_min}))"
+              f" {lat_max}, {lon_min} {lat_max}, {lon_min} {lon_min}))"
           )
           results = asf.geo_search(
               intersectsWith=wkt_polygon,
