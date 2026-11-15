@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 import numpy as np
 import rasterio
 import requests
+import scipy.ndimage as ndimage
 from scipy.ndimage import gaussian_filter, label, median_filter
 from scipy.ndimage import sum as nd_sum
 import streamlit as st
@@ -582,7 +583,7 @@ with col_right:
                 name="NASA NISAR Spectral InSAR",
             ).add_to(m)
 
-            # --- ВОССТАНОВЛЕНИЕ МАРКЕРОВ ЛОКАЛЬНЫХ ДЕФОРМАЦИЙ ---
+            # --- МАРКЕРЫ ЛОКАЛЬНЫХ ДЕФОРМАЦИЙ ---
             clean_data = np.nan_to_num(smoothed_detrended, nan=0.0)
             height, width = clean_data.shape
             max_local = (
@@ -599,7 +600,7 @@ with col_right:
             for y_idx, x_idx in zip(y_idxs[::3], x_idxs[::3]):
               lon, lat = rasterio.transform.xy(
                   src.transform, y_idx * 2, x_idx * 2
-              )  # умножаем на 2 из-за out_shape
+              )
               val = smoothed_detrended[y_idx, x_idx]
 
               if (
