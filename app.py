@@ -638,7 +638,7 @@ with col_right:
   else:
     st.warning(f"ℹ️ File `{target_tif}` not found in repository.")
 
-  st_folium(m, height=450, returned_objects=[])
+  st_folium(m, height=450, returned_objects=[], key=selected_pair)
 
 st.markdown("---")
 st.caption(
