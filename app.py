@@ -253,7 +253,7 @@ tg_token = st.sidebar.text_input(
     value="9116406484:AAH8ZKEbT4F7b6z0zwpkuDBW-tlktKqb-50",
     type="password",
 )
-tg_chat_id = st.sidebar.text_input("Your Chat ID", value="2146204975")
+tg_chat_id = st.sidebar.text_input("Group Chat ID", value="-1004295077552")
 
 ALMATY_LAT = 43.2389
 ALMATY_LON = 76.8897
@@ -301,14 +301,14 @@ try:
     geom = event["geometry"]
     lon, lat = geom["coordinates"][0], geom["coordinates"][1]
     dist = calculate_distance(ALMATY_LAT, ALMATY_LON, lat, lon)
-    
+
     # Общая лента сейсмичности отображает события в радиусе 450 км
     if dist <= 450:
       event["distance_to_almaty"] = round(dist, 1)
       filtered_events.append(event)
       event_time = datetime.fromtimestamp(event["properties"]["time"] / 1000)
       hours_ago = (now - event_time).total_seconds() / 3600
-      
+
       # АВТО-ПУШ срабатывает ТОЛЬКО если толчок ближе 100 км к Алматы, M >= 4.5 и свежий (<= 48 часов)
       if event["properties"]["mag"] >= 4.5 and hours_ago <= 48 and dist <= 100:
         high_magnitude_alerts.append(event)
@@ -371,7 +371,7 @@ with col_left:
       success, _ = send_telegram_alert(tg_token, tg_chat_id, auto_msg)
       if success:
         st.session_state["auto_alert_sent"] = True
-        st.toast("⚡ Automatic Telegram PUSH successfully sent!", icon="🚀")
+        st.toast("⚡ Automatic Telegram PUSH successfully sent to group!", icon="🚀")
   else:
     st.markdown(
         """<div class="alert-safe">🟢 Alert System: No critical local shock threats (≤ 100 km) detected in the last 48 hours. Monitoring is normal.</div>""",
